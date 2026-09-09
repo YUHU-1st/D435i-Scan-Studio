@@ -1,0 +1,57 @@
+output_dir: output
+
+camera:
+  width: 848
+  height: 480
+  color_width: 1280
+  color_height: 720
+  fps: 30
+  depth_min_m: 0.22
+  depth_max_m: 1.20
+  visual_preset: high_accuracy
+  spatial_alpha: 0.50
+  spatial_delta: 20.0
+  spatial_iterations: 3
+  temporal_alpha: 0.35
+  temporal_delta: 18.0
+  enable_temporal_filter: false
+  enable_hole_filling: false
+  hole_fill: 1
+
+reconstruction:
+  device: "CPU:0"
+  voxel_size_m: 0.0025
+  trunc_voxel_multiplier: 6.0
+  block_count: 60000
+  surface_weight_threshold: 3.0
+  max_surface_points: 1500000
+  odometry_depth_diff_m: 0.025
+  min_tracking_fitness: 0.12
+  max_tracking_rmse_m: 0.025
+  max_frame_translation_m: 0.18
+  max_frame_rotation_deg: 35.0
+  preview_every_n_frames: 12
+  keyframe_translation_m: 0.012
+  keyframe_rotation_deg: 4.0
+  keyframe_max_interval_s: 0.70
+  icp_max_correspondence_m: 0.012
+  loop_closure_distance_m: 0.09
+  loop_closure_min_separation: 15
+  loop_closure_max_per_frame: 2
+  smooth_iterations: 5
+  target_triangles: 250000
+
+roi:
+  size_x_m: 0.45
+  size_y_m: 0.45
+  size_z_m: 0.45
+  center_crop_fraction: 0.22
+  margin_m: 0.015
+
+export:
+  export_obj: true
+  export_ply: true
+  export_step: true
+  freecad_cmd: ""
+  step_tolerance_mm: 0.05
+  step_max_triangles: 50000

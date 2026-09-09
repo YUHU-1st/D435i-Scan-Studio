@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "d435i-scan-studio"
+version = "0.1.0"
+description = "Intel RealSense D435i object scanning, confidence visualization and OBJ/STEP export"
+readme = "README.md"
+requires-python = ">=3.10,<3.13"
+license = { text = "MIT" }
+dependencies = [
+  "numpy>=1.26,<3",
+  "open3d==0.19.0",
+  "pillow>=10.0",
+  "pyrealsense2>=2.56",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.9",
+]
+
+[project.scripts]
+d435i-scan = "d435i_scan.__main__:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/d435i_scan"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q -p no:cacheprovider -p no:tmpdir"
+markers = ["integration: slower end-to-end reconstruction tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+"src/d435i_scan/freecad_mesh_to_step.py" = ["BLE001", "S110"]
