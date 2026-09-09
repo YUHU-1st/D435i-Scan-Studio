@@ -1,4 +1,4 @@
-"""RealSense discovery and capability negotiation; no camera streams are opened here."""
+"""RealSense discovery and capability negotiation without opening streams."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -44,6 +44,7 @@ class DeviceInfo:
     depth_modes: list[StreamMode] = field(default_factory=list)
     color_modes: list[StreamMode] = field(default_factory=list)
     has_imu: bool = False
+    has_stereo: bool = False
     presets: list[PresetOption] = field(default_factory=list)
     diagnostics: list[str] = field(default_factory=list)
 
@@ -66,7 +67,7 @@ class DeviceInfo:
             "physical_port": self.physical_port,
             "depth_modes": [m.key for m in self.depth_modes],
             "color_modes": [m.key for m in self.color_modes],
-            "has_imu": self.has_imu,
+            "has_imu": self.has_imu, "has_stereo": self.has_stereo,
             "presets": [{"key": p.key, "label": p.label} for p in self.presets],
             "can_scan": self.can_scan, "scan_reason": self.scan_reason,
             "diagnostics": self.diagnostics,
@@ -93,7 +94,7 @@ def diagnose_error(exc: Exception, operation: str = "初始化") -> CameraError:
     if any(word in text for word in ("busy", "in use", "resource temporarily unavailable", "access denied")):
         code = "device_busy"
         hint = "设备可能被其他程序占用。请关闭 RealSense Viewer、其他采集程序后重试。"
-    elif any(word in text for word in ("no device", "not found", "disconnected", "failed to resolve request")):
+    elif any(word in text for word in ("no device", "not found", "disconnected")):
         code = "device_unavailable"
         hint = "设备不可用或已断开。请刷新设备列表，检查 USB 连接及所选流参数。"
     elif any(word in text for word in ("backend", "driver", "winusb", "permission")):
@@ -176,7 +177,12 @@ def discover_devices(rs: Any = None) -> list[DeviceInfo]:
             try:
                 depth.update(_sensor_modes(sensor, rs, "depth"))
                 color.update(_sensor_modes(sensor, rs, "color"))
-                if not info.presets:
+                stereo = getattr(rs.option, "stereo_baseline", None)
+                if stereo is not None and sensor.supports(stereo):
+                    info.has_stereo = True
+                if not info.presets and any(
+                    p.stream_type() == rs.stream.depth for p in sensor.get_stream_profiles()
+                ):
                     try:
                         info.presets = _presets(sensor, rs)
                     except RuntimeError as exc:
@@ -202,12 +208,9 @@ def select_streams(device: DeviceInfo, config: Any) -> tuple[StreamMode, StreamM
                 if mode.key == explicit:
                     return mode
             raise CameraError("capability_missing", f"设备不支持所选流 {explicit}，请重新选择。")
-        # Preserve the D435i defaults when available, but negotiate actual SDK profiles.
         return min(modes, key=lambda m: (
-            abs(m.fps - fps),
-            abs(m.width - width) + abs(m.height - height),
-            0 if m.format in ("z16", "rgb8") else 1,
-            -(m.width * m.height),
+            abs(m.fps - fps), abs(m.width - width) + abs(m.height - height),
+            0 if m.format in ("z16", "rgb8") else 1, -(m.width * m.height),
         ))
 
     depth_width, depth_height = config.width, config.height
@@ -218,3 +221,44 @@ def select_streams(device: DeviceInfo, config: Any) -> tuple[StreamMode, StreamM
     depth = choose(device.depth_modes, config.depth_mode, depth_width, depth_height, config.fps)
     color = choose(device.color_modes, config.color_mode, color_width, color_height, depth.fps)
     return depth, color
+
+
+def resolve_streams(device: DeviceInfo, config: Any, rs: Any, pipeline: Any):
+    """Resolve an actual pair; explicit choices never silently change."""
+    preferred_depth, preferred_color = select_streams(device, config)
+    if config.depth_mode and config.color_mode:
+        candidates = [(preferred_depth, preferred_color)]
+    else:
+        depths = [preferred_depth] if config.depth_mode else device.depth_modes
+        colors = [preferred_color] if config.color_mode else device.color_modes
+        candidates = [(d, c) for d in depths for c in colors]
+        candidates.sort(key=lambda pair: (
+            abs(pair[0].fps - config.fps),
+            abs(pair[0].width - config.width) + abs(pair[0].height - config.height),
+            abs(pair[1].fps - pair[0].fps),
+            abs(pair[1].width - config.color_width) + abs(pair[1].height - config.color_height),
+            0 if pair[1].format == "rgb8" else 1,
+        ))
+    if not config.depth_mode and not config.color_mode:
+        candidates.sort(key=lambda pair: (
+            pair != (preferred_depth, preferred_color),
+            abs(pair[0].fps - config.fps),
+            abs(pair[0].width - config.width) + abs(pair[0].height - config.height),
+            abs(pair[1].fps - pair[0].fps),
+            abs(pair[1].width - config.color_width) + abs(pair[1].height - config.color_height),
+        ))
+    for depth, color in candidates:
+        request = rs.config()
+        if device.serial:
+            request.enable_device(device.serial)
+        request.enable_stream(rs.stream.depth, depth.width, depth.height,
+                              rs.format.z16, depth.fps)
+        request.enable_stream(rs.stream.color, color.width, color.height,
+                              getattr(rs.format, color.format), color.fps)
+        try:
+            if request.can_resolve(pipeline):
+                return depth, color, request
+        except RuntimeError as exc:
+            raise diagnose_error(exc, "流能力检查") from exc
+    raise CameraError("capability_missing", "所选深度/彩色组合无法由 SDK 解析。请更换模式，"
+                      "或检查设备占用、USB 带宽及驱动。")

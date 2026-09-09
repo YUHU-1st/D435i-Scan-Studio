@@ -25,6 +25,9 @@ class CameraConfig:
     enable_temporal_filter: bool = False
     enable_hole_filling: bool = False
     hole_fill: int = 1
+    device_serial: str = ""
+    depth_mode: str = ""
+    color_mode: str = ""
 
 
 @dataclass(slots=True)
